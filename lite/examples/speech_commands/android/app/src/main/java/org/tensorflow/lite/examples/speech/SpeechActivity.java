@@ -42,9 +42,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.annotation.NonNull;
-import android.support.design.widget.BottomSheetBehavior;
-import android.support.v7.widget.SwitchCompat;
+import androidx.annotation.NonNull;
+import androidx.appcompat.widget.SwitchCompat;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -52,6 +51,7 @@ import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -106,7 +106,7 @@ public class SpeechActivity extends Activity
   private RecognizeCommands recognizeCommands = null;
   private LinearLayout bottomSheetLayout;
   private LinearLayout gestureLayout;
-  private BottomSheetBehavior sheetBehavior;
+  private BottomSheetBehavior<LinearLayout> sheetBehavior;
 
   private Interpreter tfLite;
   private ImageView bottomSheetArrowImageView;
@@ -146,7 +146,7 @@ public class SpeechActivity extends Activity
   protected void onCreate(Bundle savedInstanceState) {
     // Set up the UI.
     super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_speech);
+    setContentView(R.layout.tfe_sc_activity_speech);
 
     // Load the labels for the model, but only display those that don't start
     // with an underscore.

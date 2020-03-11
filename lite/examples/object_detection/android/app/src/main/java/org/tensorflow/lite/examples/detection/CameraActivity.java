@@ -34,11 +34,10 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Trace;
-import android.support.annotation.NonNull;
-import android.support.design.widget.BottomSheetBehavior;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.SwitchCompat;
-import android.support.v7.widget.Toolbar;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
+import androidx.appcompat.widget.Toolbar;
 import android.util.Size;
 import android.view.Surface;
 import android.view.View;
@@ -49,6 +48,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import java.nio.ByteBuffer;
 import org.tensorflow.lite.examples.detection.env.ImageUtils;
 import org.tensorflow.lite.examples.detection.env.Logger;
@@ -78,7 +78,7 @@ public abstract class CameraActivity extends AppCompatActivity
 
   private LinearLayout bottomSheetLayout;
   private LinearLayout gestureLayout;
-  private BottomSheetBehavior sheetBehavior;
+  private BottomSheetBehavior<LinearLayout> sheetBehavior;
 
   protected TextView frameValueTextView, cropValueTextView, inferenceTimeTextView;
   protected ImageView bottomSheetArrowImageView;
@@ -92,7 +92,7 @@ public abstract class CameraActivity extends AppCompatActivity
     super.onCreate(null);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-    setContentView(R.layout.activity_camera);
+    setContentView(R.layout.tfe_od_activity_camera);
     Toolbar toolbar = findViewById(R.id.toolbar);
     setSupportActionBar(toolbar);
     getSupportActionBar().setDisplayShowTitleEnabled(false);
@@ -345,14 +345,21 @@ public abstract class CameraActivity extends AppCompatActivity
   public void onRequestPermissionsResult(
       final int requestCode, final String[] permissions, final int[] grantResults) {
     if (requestCode == PERMISSIONS_REQUEST) {
-      if (grantResults.length > 0
-          && grantResults[0] == PackageManager.PERMISSION_GRANTED
-          && grantResults[1] == PackageManager.PERMISSION_GRANTED) {
+      if (allPermissionsGranted(grantResults)) {
         setFragment();
       } else {
         requestPermission();
       }
     }
+  }
+
+  private static boolean allPermissionsGranted(final int[] grantResults) {
+    for (int result : grantResults) {
+      if (result != PackageManager.PERMISSION_GRANTED) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private boolean hasPermission() {

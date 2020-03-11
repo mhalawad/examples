@@ -15,6 +15,7 @@
 import CoreImage
 import TensorFlowLite
 import UIKit
+import Accelerate
 
 /// A result from invoking the `Interpreter`.
 struct Result {
@@ -42,7 +43,7 @@ enum MobileNet {
 /// results for a successful inference.
 class ModelDataHandler {
 
-  // MARK: - Public Properties
+  // MARK: - Internal Properties
 
   /// The current thread count used by the TensorFlow Lite Interpreter.
   let threadCount: Int
@@ -88,10 +89,11 @@ class ModelDataHandler {
     self.threadCount = threadCount
     var options = InterpreterOptions()
     options.threadCount = threadCount
-    options.isErrorLoggingEnabled = true
     do {
       // Create the `Interpreter`.
       interpreter = try Interpreter(modelPath: modelPath, options: options)
+      // Allocate memory for the model's input `Tensor`s.
+      try interpreter.allocateTensors()
     } catch let error {
       print("Failed to create the interpreter with error: \(error.localizedDescription)")
       return nil
@@ -100,10 +102,11 @@ class ModelDataHandler {
     loadLabels(fileInfo: labelsFileInfo)
   }
 
-  // MARK: - Public Methods
+  // MARK: - Internal Methods
 
-  /// Performs image preprocessing, invokes the `Interpreter`, and process the inference results.
+  /// Performs image preprocessing, invokes the `Interpreter`, and processes the inference results.
   func runModel(onFrame pixelBuffer: CVPixelBuffer) -> Result? {
+    
     let sourcePixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
     assert(sourcePixelFormat == kCVPixelFormatType_32ARGB ||
              sourcePixelFormat == kCVPixelFormatType_32BGRA ||
@@ -122,8 +125,6 @@ class ModelDataHandler {
     let interval: TimeInterval
     let outputTensor: Tensor
     do {
-      // Allocate memory for the model's input `Tensor`s.
-      try interpreter.allocateTensors()
       let inputTensor = try interpreter.input(at: 0)
 
       // Remove the alpha component from the image buffer to get the RGB data.
@@ -164,8 +165,8 @@ class ModelDataHandler {
       }
     case .float32:
       results = [Float32](unsafeData: outputTensor.data) ?? []
-    case .bool, .int16, .int32, .int64:
-      print("Output tensor data type \(outputTensor.dataType) is unsupported.")
+    default:
+      print("Output tensor data type \(outputTensor.dataType) is unsupported for this example app.")
       return nil
     }
 
@@ -223,23 +224,64 @@ class ModelDataHandler {
     isModelQuantized: Bool
   ) -> Data? {
     CVPixelBufferLockBaseAddress(buffer, .readOnly)
-    defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-    guard let mutableRawPointer = CVPixelBufferGetBaseAddress(buffer) else {
+    defer {
+      CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+    }
+    guard let sourceData = CVPixelBufferGetBaseAddress(buffer) else {
       return nil
     }
-    let count = CVPixelBufferGetDataSize(buffer)
-    let bufferData = Data(bytesNoCopy: mutableRawPointer, count: count, deallocator: .none)
-    var rgbBytes = [UInt8](repeating: 0, count: byteCount)
-    var index = 0
-    for component in bufferData.enumerated() {
-      let offset = component.offset
-      let isAlphaComponent = (offset % alphaComponent.baseOffset) == alphaComponent.moduloRemainder
-      guard !isAlphaComponent else { continue }
-      rgbBytes[index] = component.element
-      index += 1
+    
+    let width = CVPixelBufferGetWidth(buffer)
+    let height = CVPixelBufferGetHeight(buffer)
+    let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+    let destinationChannelCount = 3
+    let destinationBytesPerRow = destinationChannelCount * width
+    
+    var sourceBuffer = vImage_Buffer(data: sourceData,
+                                     height: vImagePixelCount(height),
+                                     width: vImagePixelCount(width),
+                                     rowBytes: sourceBytesPerRow)
+    
+    guard let destinationData = malloc(height * destinationBytesPerRow) else {
+      print("Error: out of memory")
+      return nil
     }
-    if isModelQuantized { return Data(bytes: rgbBytes) }
-    return Data(copyingBufferOf: rgbBytes.map { Float($0) / 255.0 })
+    
+    defer {
+        free(destinationData)
+    }
+
+    var destinationBuffer = vImage_Buffer(data: destinationData,
+                                          height: vImagePixelCount(height),
+                                          width: vImagePixelCount(width),
+                                          rowBytes: destinationBytesPerRow)
+
+    let pixelBufferFormat = CVPixelBufferGetPixelFormatType(buffer)
+
+    switch (pixelBufferFormat) {
+    case kCVPixelFormatType_32BGRA:
+        vImageConvert_BGRA8888toRGB888(&sourceBuffer, &destinationBuffer, UInt32(kvImageNoFlags))
+    case kCVPixelFormatType_32ARGB:
+        vImageConvert_ARGB8888toRGB888(&sourceBuffer, &destinationBuffer, UInt32(kvImageNoFlags))
+    case kCVPixelFormatType_32RGBA:
+        vImageConvert_RGBA8888toRGB888(&sourceBuffer, &destinationBuffer, UInt32(kvImageNoFlags))
+    default:
+        // Unknown pixel format.
+        return nil
+    }
+
+    let byteData = Data(bytes: destinationBuffer.data, count: destinationBuffer.rowBytes * height)
+    if isModelQuantized {
+        return byteData
+    }
+
+    // Not quantized, convert to floats
+    let bytes = Array<UInt8>(unsafeData: byteData)!
+    var floats = [Float]()
+    for i in 0..<bytes.count {
+        floats.append(Float(bytes[i]) / 255.0)
+    }
+    return Data(copyingBufferOf: floats)
   }
 }
 
